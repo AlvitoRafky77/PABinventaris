@@ -1,101 +1,130 @@
-// File: com/example/pab_inventaris/LoginActivity.kt
-
-package com.example.pab_inventaris // <--- DIPERBAIKI
+package com.example.pab_inventaris
 
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
-import com.google.gson.JsonObject
-import com.example.pab_inventaris.databinding.ActivityLoginBinding // <--- DIPERBAIKI
-import com.example.pab_inventaris.network.RetrofitClient // <--- DIPERBAIKI
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.example.pab_inventaris.databinding.ActivityLoginBinding
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.tasks.Task
+import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var mGoogleSignInClient: GoogleSignInClient
+    private lateinit var dbHelper: DatabaseHelper
+    private val RC_SIGN_IN = 9001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        dbHelper = DatabaseHelper(this)
+
+        val sharedPreferences = getSharedPreferences("USER_SESSION", Context.MODE_PRIVATE)
+        if (sharedPreferences.getBoolean("IS_LOGGED_IN", false)) {
+            val intent = Intent(this, DashboardActivity::class.java)
+            startActivity(intent)
+            finish()
+            return
+        }
+
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        sharedPreferences = getSharedPreferences("USER_SESSION", Context.MODE_PRIVATE)
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().build()
+        mGoogleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Cek Sesi Login
-        if (sharedPreferences.getBoolean("IS_LOGGED_IN", false)) {
-            goToDashboard()
-            return
+        binding.signInButton.setOnClickListener {
+            signInWithGoogle()
         }
 
-        // Event Listener
         binding.btnLogin.setOnClickListener {
-            loginUser()
+            loginBiasa()
         }
 
-        binding.tvToRegister.setOnClickListener {
-            // Pindah ke RegisterActivity
-            val intent = Intent(this, RegisterActivity::class.java)
-            startActivity(intent)
+        binding.tvRegister.setOnClickListener {
+            startActivity(Intent(this, RegisterActivity::class.java))
         }
     }
 
-    private fun loginUser() {
-        val username = binding.etUsername.text.toString().trim()
-        val password = binding.etPassword.text.toString().trim()
+    private fun loginBiasa() {
+        val email = binding.tietEmail.text.toString().trim()
+        val password = binding.tietPassword.text.toString().trim()
 
-        if (username.isEmpty() || password.isEmpty()) {
-            Toast.makeText(this, "Username dan Password tidak boleh kosong", Toast.LENGTH_SHORT).show()
+        if (email.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "Email dan password tidak boleh kosong", Toast.LENGTH_SHORT).show()
             return
         }
 
-        RetrofitClient.instance.login(username, password)
-            .enqueue(object : Callback<JsonObject> {
+        lifecycleScope.launch {
+            val user = dbHelper.checkUser(email, password)
+            if (user != null) {
+                saveSessionAndNavigate(user)
+            } else {
+                Toast.makeText(this@LoginActivity, "Email atau Password Salah", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
-                override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
-                    if (response.isSuccessful) {
-                        val json = response.body()
+    private fun signInWithGoogle() {
+        val signInIntent = mGoogleSignInClient.signInIntent
+        startActivityForResult(signInIntent, RC_SIGN_IN)
+    }
 
-                        if (json != null && json.get("status").asString == "success") {
-                            // Login Berhasil
-                            val data = json.getAsJsonObject("data")
-                            val userId = data.get("user_id").asInt
-                            val loggedInUsername = data.get("username").asString
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == RC_SIGN_IN) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+            handleSignInResult(task)
+        }
+    }
 
-                            // Simpan sesi
-                            val editor = sharedPreferences.edit()
-                            editor.putBoolean("IS_LOGGED_IN", true)
-                            editor.putInt("USER_ID", userId)
-                            editor.putString("USERNAME", loggedInUsername)
-                            editor.apply()
-
-                            Toast.makeText(this@LoginActivity, "Login Berhasil!", Toast.LENGTH_SHORT).show()
-                            goToDashboard()
-
-                        } else {
-                            // Login Gagal
-                            val message = json?.get("message")?.asString ?: "Login Gagal"
-                            Toast.makeText(this@LoginActivity, message, Toast.LENGTH_LONG).show()
-                        }
+    private fun handleSignInResult(completedTask: Task<GoogleSignInAccount>) {
+        try {
+            val account = completedTask.getResult(ApiException::class.java)
+            if (account != null && account.id != null) {
+                lifecycleScope.launch {
+                    val user = dbHelper.findUserByGoogleId(account.id!!)
+                    if (user != null) {
+                        saveSessionAndNavigate(user)
                     } else {
-                        Toast.makeText(this@LoginActivity, "Gagal: ${response.message()}", Toast.LENGTH_SHORT).show()
+                        val intent = Intent(this@LoginActivity, LengkapiDataActivity::class.java).apply {
+                            putExtra("GOOGLE_ID", account.id)
+                            putExtra("EMAIL", account.email)
+                            putExtra("NAMA", account.displayName)
+                            putExtra("FOTO_URL", account.photoUrl?.toString())
+                        }
+                        startActivity(intent)
                     }
                 }
-
-                override fun onFailure(call: Call<JsonObject>, t: Throwable) {
-                    Toast.makeText(this@LoginActivity, "Gagal terhubung ke server: ${t.message}", Toast.LENGTH_LONG).show()
-                    Log.e("LoginActivity", "onFailure: ", t)
-                }
-            })
+            } else {
+                Toast.makeText(this, "Gagal mendapatkan akun Google", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: ApiException) {
+            mGoogleSignInClient.signOut()
+            Toast.makeText(this, "Login Google Gagal: " + e.statusCode, Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun goToDashboard() {
+    private fun saveSessionAndNavigate(user: Map<String, Any?>) {
+        val sharedPreferences = getSharedPreferences("USER_SESSION", Context.MODE_PRIVATE)
+        val editor = sharedPreferences.edit()
+        editor.putBoolean("IS_LOGGED_IN", true)
+        editor.putInt("USER_ID", user["id"] as Int)
+        editor.putString("USER_NAME", user["nama"] as? String)
+        editor.putString("EMAIL", user["email"] as? String)
+        editor.putString("FOTO_URL", user["foto_url"] as? String)
+        editor.putString("JENIS_KELAMIN", user["jenis_kelamin"] as? String)
+        editor.putString("TANGGAL_LAHIR", user["tanggal_lahir"] as? String)
+        editor.apply()
+
         val intent = Intent(this, DashboardActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)

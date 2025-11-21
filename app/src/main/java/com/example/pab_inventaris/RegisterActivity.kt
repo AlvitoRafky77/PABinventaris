@@ -1,80 +1,55 @@
-// File: com/example/pab_inventaris/RegisterActivity.kt
-
-package com.example.pab_inventaris // <--- DIPERBAIKI
+package com.example.pab_inventaris
 
 import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.util.Log
+import android.widget.RadioButton
 import android.widget.Toast
-import com.google.gson.JsonObject
-import com.example.pab_inventaris.databinding.ActivityRegisterBinding // <--- DIPERBAIKI
-import com.example.pab_inventaris.network.RetrofitClient // <--- DIPERBAIKI
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.example.pab_inventaris.databinding.ActivityRegisterBinding
+import kotlinx.coroutines.launch
 
 class RegisterActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityRegisterBinding
+    private lateinit var dbHelper: DatabaseHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityRegisterBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Event Listener
+        dbHelper = DatabaseHelper(this)
+
         binding.btnRegister.setOnClickListener {
-            registerUser()
-        }
+            val namaLengkap = binding.tietNamaLengkapReg.text.toString().trim()
+            val email = binding.tietEmailReg.text.toString().trim()
+            val password = binding.tietPasswordReg.text.toString().trim()
 
-        binding.tvToLogin.setOnClickListener {
-            // Kembali ke LoginActivity
-            finish()
-        }
-    }
+            val selectedJenisKelaminId = binding.rgJenisKelaminReg.checkedRadioButtonId
 
-    private fun registerUser() {
-        val username = binding.etUsernameRegister.text.toString().trim()
-        val password = binding.etPasswordRegister.text.toString().trim()
+            if (namaLengkap.isEmpty() || email.isEmpty() || password.isEmpty() || selectedJenisKelaminId == -1) {
+                Toast.makeText(this, "Semua kolom wajib diisi", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
 
-        // Validasi
-        if (username.isEmpty() || password.isEmpty()) {
-            Toast.makeText(this, "Username dan Password tidak boleh kosong", Toast.LENGTH_SHORT).show()
-            return
-        }
+            val jenisKelamin = findViewById<RadioButton>(selectedJenisKelaminId).text.toString()
 
-        if (password.length < 6) {
-            Toast.makeText(this, "Password minimal harus 6 karakter", Toast.LENGTH_SHORT).show()
-            return
-        }
+            val dp = binding.dpTanggalLahirReg
+            val tanggalLahir = "${dp.dayOfMonth}/${dp.month + 1}/${dp.year}"
 
-        RetrofitClient.instance.register(username, password)
-            .enqueue(object : Callback<JsonObject> {
-
-                override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
-                    if (response.isSuccessful) {
-                        val json = response.body()
-
-                        if (json != null && json.get("status").asString == "success") {
-                            // Registrasi Berhasil
-                            Toast.makeText(this@RegisterActivity, "Registrasi berhasil! Silakan login.", Toast.LENGTH_LONG).show()
-                            finish()
-
-                        } else {
-                            // Registrasi Gagal
-                            val message = json?.get("message")?.asString ?: "Registrasi Gagal"
-                            Toast.makeText(this@RegisterActivity, message, Toast.LENGTH_LONG).show()
-                        }
-                    } else {
-                        Toast.makeText(this@RegisterActivity, "Gagal: ${response.message()}", Toast.LENGTH_SHORT).show()
-                    }
+            lifecycleScope.launch {
+                val newUserId = dbHelper.addUser(email, password, namaLengkap, jenisKelamin, tanggalLahir)
+                if (newUserId != -1L) {
+                    Toast.makeText(this@RegisterActivity, "Pendaftaran berhasil! Silakan login.", Toast.LENGTH_LONG).show()
+                    val intent = Intent(this@RegisterActivity, LoginActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(intent)
+                    finish()
+                } else {
+                    Toast.makeText(this@RegisterActivity, "Pendaftaran gagal. Email mungkin sudah digunakan.", Toast.LENGTH_LONG).show()
                 }
-
-                override fun onFailure(call: Call<JsonObject>, t: Throwable) {
-                    Toast.makeText(this@RegisterActivity, "Gagal terhubung ke server: ${t.message}", Toast.LENGTH_LONG).show()
-                    Log.e("RegisterActivity", "onFailure: ", t)
-                }
-            })
+            }
+        }
     }
 }

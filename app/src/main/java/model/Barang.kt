@@ -1,21 +1,11 @@
-// File: model/Barang.kt
-package com.example.pab_inventaris.model // Sesuaikan package
+package com.example.pab_inventaris.model
 
-import com.google.gson.annotations.SerializedName
+// Anotasi @SerializedName dan import com.google.gson sudah tidak diperlukan
+// karena kita beralih ke database SQLite lokal.
 
 data class Barang(
-    // Pastikan nama variabel di sini (kiri)
-    // SAMA PERSIS dengan nama kolom di API JSON Anda (kanan)
-
-    @SerializedName("id")
     val id: Int,
-
-    @SerializedName("nama")
     val nama: String,
-
-    @SerializedName("jumlah")
     val jumlah: Int,
-
-    @SerializedName("harga")
     val harga: Long
 )
