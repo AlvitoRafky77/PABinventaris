@@ -124,6 +124,34 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         }
     }
 
+    suspend fun getUserById(userId: Int): Map<String, Any?>? = withContext(Dispatchers.IO) {
+        val cursor: Cursor = readableDatabase.rawQuery("SELECT * FROM $TABLE_USERS WHERE $KEY_USER_ID = ?", arrayOf(userId.toString()))
+        cursor.use {
+            if (it.moveToFirst()) {
+                val passwordIndex = it.getColumnIndex(KEY_PASSWORD)
+                val password = if (passwordIndex != -1) it.getString(passwordIndex) else null
+
+                mapOf(
+                    "id" to it.getInt(it.getColumnIndexOrThrow(KEY_USER_ID)),
+                    "nama" to it.getString(it.getColumnIndexOrThrow(KEY_NAMA_LENGKAP)),
+                    "jenis_kelamin" to it.getString(it.getColumnIndexOrThrow(KEY_JENIS_KELAMIN)),
+                    "tanggal_lahir" to it.getString(it.getColumnIndexOrThrow(KEY_TANGGAL_LAHIR)),
+                    "foto_url" to it.getString(it.getColumnIndexOrThrow(KEY_FOTO_URL)),
+                    "password" to password
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun updatePassword(userId: Int, newPass: String): Int = withContext(Dispatchers.IO) {
+        val values = ContentValues().apply {
+            put(KEY_PASSWORD, newPass)
+        }
+        writableDatabase.update(TABLE_USERS, values, "$KEY_USER_ID = ?", arrayOf(userId.toString()))
+    }
+
     // --- FUNGSI UNTUK BARANG ---
     suspend fun addBarang(barang: Barang, userId: Int): Long = withContext(Dispatchers.IO) {
         val values = ContentValues().apply {
